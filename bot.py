@@ -1,5 +1,4 @@
 import os
-import asyncio
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes
@@ -17,9 +16,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ref = context.args[0] if context.args else None
     msg = (
         f"👋 Hello {user.first_name}!\n\n"
-        "Welcome to the Premium Signals Bot 🚀\n\n"
+        "Welcome to the *Premium Signals Bot* 🚀\n\n"
         "🔥 Send /joinpremium to become a member.\n"
-        "💸 Invite friends using your referral link: "
+        "💸 Invite friends using your referral link:\n"
         f"`https://t.me/{context.bot.username}?start={user.id}`"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -57,7 +56,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -----------------------------
 # MAIN FUNCTION
 # -----------------------------
-async def main():
+def main():
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
@@ -70,7 +69,7 @@ async def main():
     app.add_handler(CommandHandler("help", help_command))
 
     print("✅ Bot started successfully!")
-    await app.run_polling()
+    app.run_polling(stop_signals=None)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
