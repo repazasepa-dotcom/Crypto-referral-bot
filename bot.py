@@ -2,135 +2,172 @@ import os
 import asyncio
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, ContextTypes
+    ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
-# ----------------------------
-# ⚙️ SIMULATED DATABASE
-# ----------------------------
-users = {}  # user_id: {"ref": ref_id, "balance": 0, "premium": False, "left": None, "right": None}
-pairings_today = 0
+# In-memory databases
+USERS = {}
+BALANCES = {}
+REFERRALS = {}
+PAIRS = {}
+JOINED_PREMIUM = set()
 
-# ----------------------------
-# 🧠 HELPER FUNCTIONS
-# ----------------------------
-def get_ref_link(user_id):
-    return f"https://t.me/{os.getenv('BOT_USERNAME', 'YourBotUsername')}?start={user_id}"
+# Your fixed USDT BEP20 address
+PAYMENT_ADDRESS = "0xC6219FFBA27247937A63963E4779e33F7930d497"
 
-async def credit_direct_bonus(ref_id):
-    if ref_id in users:
-        users[ref_id]["balance"] += 20  # 💰 Direct bonus 20 USDT
+# Premium link
+PREMIUM_GROUP = "https://t.me/+ra4eSwIYWukwMjRl"
 
-async def credit_pairing_bonus():
-    global pairings_today
-    pairings_today += 1
-    if pairings_today <= 10:  # limit 10 pairs per day
-        for uid, data in users.items():
-            if data.get("left") and data.get("right"):
-                data["balance"] += 5  # 🤝 Pairing bonus 5 USDT
+# ---------------------------
+# 🌟 Basic Bot Commands
+# ---------------------------
 
-# ----------------------------
-# 🚀 COMMAND HANDLERS
-# ----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    ref_id = None
-    if context.args:
-        try:
-            ref_id = int(context.args[0])
-        except ValueError:
-            pass
+    user_id = user.id
+    args = context.args
 
-    if user.id not in users:
-        users[user.id] = {"ref": ref_id, "balance": 0, "premium": False, "left": None, "right": None}
+    if user_id not in USERS:
+        USERS[user_id] = {"ref": None}
+        BALANCES[user_id] = 0
+        PAIRS[user_id] = 0
 
-        # assign left/right leg if ref exists
-        if ref_id and ref_id in users:
-            if users[ref_id]["left"] is None:
-                users[ref_id]["left"] = user.id
-            elif users[ref_id]["right"] is None:
-                users[ref_id]["right"] = user.id
+        if args:
+            ref_id = int(args[0])
+            if ref_id != user_id and ref_id in USERS:
+                USERS[user_id]["ref"] = ref_id
+                REFERRALS.setdefault(ref_id, []).append(user_id)
 
-    msg = (
-        f"👋 Welcome {user.first_name}!\n\n"
-        f"🎯 To join Premium, deposit **50 USDT (BEP-20)** to the admin address.\n\n"
-        f"Your referral link:\n{get_ref_link(user.id)}"
+    text = (
+        f"👋 Welcome *{user.first_name or 'Trader'}!* 🚀\n\n"
+        "💎 Earn by referring friends and joining premium signals!\n\n"
+        f"💰 To join Premium, send *50 USDT (BEP20)* to:\n`{PAYMENT_ADDRESS}`\n\n"
+        "Once done, send /joined to confirm payment ✅"
     )
-    await update.message.reply_text(msg)
+    await update.message.reply_text(text, parse_mode="Markdown")
 
-async def join_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if user.id not in users:
-        await update.message.reply_text("❌ Please start with /start first.")
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "📖 *Bot Commands:*\n\n"
+        "💎 /start — Start or get your referral link\n"
+        "👥 /referral — View your referral info\n"
+        "💰 /balance — Check your earnings\n"
+        "🏧 /withdraw — Withdraw your referral rewards\n"
+        "⭐️ /joined — Confirm your premium payment"
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+# ---------------------------
+# 💰 Referral and Premium
+# ---------------------------
+
+async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in USERS:
+        await update.message.reply_text("Please use /start first.")
         return
 
-    users[user.id]["premium"] = True
-    await update.message.reply_text("✅ Premium activated! You can now earn rewards.")
-    ref_id = users[user.id].get("ref")
-    if ref_id:
-        await credit_direct_bonus(ref_id)
-        await credit_pairing_bonus()
+    link = f"https://t.me/{context.bot.username}?start={user_id}"
+    refs = REFERRALS.get(user_id, [])
+    text = (
+        f"👥 *Your Referral Info:*\n\n"
+        f"🔗 Referral Link: {link}\n"
+        f"👤 Direct Referrals: {len(refs)}\n"
+        f"💵 Balance: {BALANCES.get(user_id, 0)} USDT\n"
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+async def joined(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id in JOINED_PREMIUM:
+        await update.message.reply_text("✅ You’re already in Premium!")
+        return
+
+    JOINED_PREMIUM.add(user_id)
+    ref = USERS.get(user_id, {}).get("ref")
+
+    # Direct referral bonus (10 USDT)
+    if ref:
+        BALANCES[ref] = BALANCES.get(ref, 0) + 10
+        await context.bot.send_message(ref, f"🎉 Your referral joined Premium! +10 USDT")
+
+        # Pairing bonus (5 USDT up to 3 pairs)
+        PAIRS[ref] = PAIRS.get(ref, 0) + 1
+        if PAIRS[ref] <= 3:
+            BALANCES[ref] += 5
+            await context.bot.send_message(ref, f"🤝 Pair bonus earned! +5 USDT (Pair {PAIRS[ref]}/3)")
+
+    text = (
+        "✅ *Payment Confirmed!* Welcome to Premium! 🎉\n\n"
+        "🔥 *Benefits:*\n"
+        "🚀 Early coin alerts\n"
+        "🎯 Buy & sell targets\n"
+        "📈 2–5 daily signals\n"
+        "🤖 Auto trading bot\n"
+        "💎 1–3 special premium signals daily\n\n"
+        f"👉 Join here: {PREMIUM_GROUP}"
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+# ---------------------------
+# 💵 Withdraw & Admin
+# ---------------------------
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    bal = users.get(user.id, {}).get("balance", 0)
-    await update.message.reply_text(f"💰 Your referral balance: {bal:.2f} USDT")
+    user_id = update.effective_user.id
+    bal = BALANCES.get(user_id, 0)
+    await update.message.reply_text(f"💰 Your balance: {bal} USDT")
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if user.id not in users:
-        await update.message.reply_text("❌ Please start first with /start.")
-        return
+    user_id = update.effective_user.id
+    bal = BALANCES.get(user_id, 0)
 
-    bal = users[user.id]["balance"]
     if bal < 20:
-        await update.message.reply_text("⚠️ Minimum withdrawal is 20 USDT.")
+        await update.message.reply_text("❌ Minimum withdrawal is 20 USDT.")
         return
 
-    if len(context.args) != 1:
-        await update.message.reply_text("💳 Usage: /withdraw <your BEP-20 USDT address>")
-        return
+    await update.message.reply_text(
+        "💵 Enter your *USDT (BEP20)* address to withdraw:",
+        parse_mode="Markdown"
+    )
+    context.user_data["awaiting_withdraw"] = True
 
-    address = context.args[0]
-    msg = f"💸 Withdrawal request from {user.first_name} ({user.id})\nAmount: {bal:.2f} USDT\nAddress: `{address}`"
-    if ADMIN_ID:
-        await context.bot.send_message(ADMIN_ID, msg)
-    await update.message.reply_text("✅ Withdrawal request sent to admin. Please wait for processing.")
-    users[user.id]["balance"] = 0
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if context.user_data.get("awaiting_withdraw"):
+        address = update.message.text.strip()
+        amount = BALANCES.get(user_id, 0)
+        BALANCES[user_id] = 0
+        context.user_data["awaiting_withdraw"] = False
 
-async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    text = " ".join(context.args)
-    for uid in users:
-        try:
-            await context.bot.send_message(uid, f"📢 Admin Broadcast:\n{text}")
-        except Exception:
-            continue
-    await update.message.reply_text("✅ Message sent to all users.")
+        # Notify admin
+        await context.bot.send_message(
+            ADMIN_ID,
+            f"💸 Withdrawal Request\n\nUser: {user_id}\nAmount: {amount} USDT\nAddress: `{address}`",
+            parse_mode="Markdown"
+        )
+        await update.message.reply_text("✅ Withdrawal request sent to admin. Expect manual payment soon!")
 
-# ----------------------------
-# 🧩 MAIN
-# ----------------------------
+# ---------------------------
+# 🚀 Start the Bot (Background Worker Safe)
+# ---------------------------
+
 async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("join", join_premium))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("referral", referral))
+    app.add_handler(CommandHandler("joined", joined))
     app.add_handler(CommandHandler("balance", balance))
     app.add_handler(CommandHandler("withdraw", withdraw))
-    app.add_handler(CommandHandler("broadcast", admin_broadcast))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("✅ Bot started successfully! Polling for updates...")
+    print("✅ Bot started successfully! Running as background worker...")
     await app.run_polling()
 
-# ----------------------------
-# 🔁 EVENT LOOP FIX (Render)
-# ----------------------------
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(main())
-    loop.run_forever()
+    asyncio.get_event_loop().run_until_complete(main())
