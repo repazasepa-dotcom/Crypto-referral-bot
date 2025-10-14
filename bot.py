@@ -1,4 +1,5 @@
 import os
+import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
@@ -14,21 +15,21 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Available commands:\n/start - Check if bot is running\n/help - Help info")
 
 
-def main():
+async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
 
-    # ✅ Use polling without closing Render's loop
-    import asyncio
-    loop = asyncio.get_event_loop()
-    loop.create_task(app.initialize())
-    loop.create_task(app.start())
-    print("✅ Bot started successfully and running in background...")
+    print("✅ Initializing bot...")
+    await app.initialize()
+    print("✅ Starting bot polling...")
+    await app.start()
+    print("✅ Bot is now running and polling updates...")
 
-    loop.run_forever()
+    # Keep it running forever
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
