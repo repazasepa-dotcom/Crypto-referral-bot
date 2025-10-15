@@ -102,12 +102,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     referral_link = f"https://t.me/{context.bot.username}?start={user_id}"
     benefits_text = (
-        "🔥 **Premium Membership Benefits** 🔥\n\n"
-        "🚀 Get Coin names **before pump**\n"
-        "🚀 Guidance on **buy & sell targets**\n"
-        "🚀 Receive **2-5 daily signals**\n"
-        "🚀 **Auto trading by bot**\n"
-        "🚀 **1-3 special signals daily** in premium channel\n"
+        "🔥 Premium Membership Benefits 🔥\n\n"
+        "🚀 Get Coin names before pump\n"
+        "🚀 Guidance on buy & sell targets\n"
+        "🚀 Receive 2-5 daily signals\n"
+        "🚀 Auto trading by bot\n"
+        "🚀 1-3 special signals daily in premium channel\n"
         "   (these coins will pump within 24 hours or very short duration)\n\n"
     )
 
@@ -231,14 +231,14 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending_text = f"\nPending withdrawal: {pending['amount']} USDT" if pending else ""
 
     msg = (
-        f"📊 **Your Stats:**\n"
+        f"📊 Your Stats:\n"
         f"Balance: {balance_amount} USDT{pending_text}\n"
         f"Direct referrals: {num_referrals}\n"
         f"Left pairs today: {left}\n"
         f"Right pairs today: {right}\n"
         f"Membership paid: {'✅' if paid else '❌'}"
     )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(msg)
 
 # -----------------------
 # Safe withdrawal
@@ -307,7 +307,7 @@ async def process_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     target_user_id = context.args[0]
-    amount = context.args[1]
+    amount = int(context.args[1])
     user = users.get(target_user_id)
     if not user:
         await update.message.reply_text("User not found.")
@@ -327,7 +327,7 @@ async def process_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Funds will arrive in your BEP20 wallet shortly."
             )
         )
-        user["balance"] -= int(amount)
+        user["balance"] -= amount
         user.pop("pending_withdraw", None)
         save_data()
         await update.message.reply_text(f"✅ User {target_user_id} has been notified.")
@@ -335,14 +335,15 @@ async def process_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Failed to notify user: {e}")
 
 # -----------------------
-# Help command
+# Help command (safe)
 # -----------------------
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     is_admin = user_id == ADMIN_ID
 
+    # Plain text to avoid Markdown errors
     help_text = (
-        "📌 **Available Commands:**\n\n"
+        "📌 Available Commands:\n\n"
         "/start - Register and see referral link & benefits\n"
         "/balance - Check your current balance\n"
         "/stats - View your referral stats\n"
@@ -354,10 +355,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text += (
             "\n\n--- Admin Commands ---\n"
             "/confirm <user_id> - Confirm user payment & give premium access\n"
-            "/processwithdraw <user_id> - Process a withdrawal request\n"
+            "/processwithdraw <user_id> - Process a withdrawal request"
         )
 
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    await update.message.reply_text(help_text)
 
 # -----------------------
 # Unknown commands
