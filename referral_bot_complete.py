@@ -47,7 +47,7 @@ DIRECT_BONUS = 20
 PAIRING_BONUS = 5
 MAX_PAIRS_PER_DAY = 10
 MEMBERSHIP_FEE = 50
-BNB_ADDRESS = "0xC6219FFBA27247937A63963E4779e33F7930d497"
+BNB_ADDRESS = "0xC6219FFBA27247937A63963E4779e33F7930d497"  # Clickable copy
 PREMIUM_GROUP = "https://t.me/+ra4eSwIYWukwMjRl"
 MIN_WITHDRAW = 20
 
@@ -113,7 +113,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"{benefits_text}"
         f"💰 To access, pay {MEMBERSHIP_FEE} USDT (BNB Smart Chain BEP20) to:\n"
-        f"[Click to copy BNB address]({BNB_ADDRESS})\n\n"
+        f"[Click to copy BNB address](tg://copy?text={BNB_ADDRESS})\n\n"
         f"Share your referral link to earn bonuses after your friends pay:\n{referral_link}",
         parse_mode="Markdown"
     )
@@ -139,7 +139,7 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user["paid"] = True
 
-    # Credit referrer bonuses
+    # Only now credit referrer bonuses
     ref_id = user.get("referrer")
     if ref_id:
         users[ref_id]["balance"] += DIRECT_BONUS
@@ -290,7 +290,6 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Main
 # -----------------------
 if __name__ == "__main__":
-    # Load bot token from environment variable
     TOKEN = os.environ.get("BOT_TOKEN")
     if not TOKEN:
         raise ValueError("⚠️ BOT_TOKEN environment variable not set!")
@@ -307,5 +306,5 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    # Run polling directly
+    # Run polling
     app.run_polling()
