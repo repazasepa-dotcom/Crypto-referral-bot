@@ -290,7 +290,11 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Main
 # -----------------------
 if __name__ == "__main__":
-    TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with your bot token
+    # Load bot token from environment variable
+    TOKEN = os.environ.get("BOT_TOKEN")
+    if not TOKEN:
+        raise ValueError("⚠️ BOT_TOKEN environment variable not set!")
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     # Handlers
