@@ -2,7 +2,7 @@
 import logging
 import json
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 import asyncio
 import os
 from datetime import datetime
@@ -294,7 +294,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Unknown commands
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Unknown command.")
+    await update.message.reply_text("❌ Unknown command. Type /help to see available commands.")
 
 # -----------------------
 # Main
@@ -304,7 +304,7 @@ async def main():
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Commands
+    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("confirm", confirm))
     app.add_handler(CommandHandler("balance", balance))
@@ -312,7 +312,9 @@ async def main():
     app.add_handler(CommandHandler("withdraw", withdraw))
     app.add_handler(CommandHandler("processwithdraw", process_withdraw))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler(None, unknown))  # fallback
+
+    # Unknown command handler
+    app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
     await app.run_polling()
 
