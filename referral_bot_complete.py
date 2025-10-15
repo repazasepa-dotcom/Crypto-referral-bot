@@ -1,11 +1,13 @@
 # referral_bot_complete.py
 import logging
 import json
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-import asyncio
 import os
 from datetime import datetime
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, ContextTypes,
+    MessageHandler, filters
+)
 
 # -----------------------
 # Logging
@@ -40,14 +42,14 @@ else:
 # -----------------------
 # Constants
 # -----------------------
-ADMIN_ID = 8150987682  # Your Telegram ID as admin
+ADMIN_ID = 8150987682
 DIRECT_BONUS = 20
 PAIRING_BONUS = 5
 MAX_PAIRS_PER_DAY = 10
 MEMBERSHIP_FEE = 50
 BNB_ADDRESS = "0xC6219FFBA27247937A63963E4779e33F7930d497"
 PREMIUM_GROUP = "https://t.me/+ra4eSwIYWukwMjRl"
-MIN_WITHDRAW = 20  # USDT
+MIN_WITHDRAW = 20
 
 # -----------------------
 # Helper functions
@@ -116,7 +118,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# Admin-only payment confirmation
 async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ You are not authorized to use this command.")
@@ -152,20 +153,17 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_data()
 
-    # Send premium group link to user
     await update.message.reply_text(
         f"✅ User {target_user_id} confirmed as paid. Bonuses credited to referrer.\n\n"
         f"Here is your premium signals channel link:\n{PREMIUM_GROUP}"
     )
 
-# Check balance
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reset_pairing_if_needed()
     user_id = str(update.effective_user.id)
     bal = users.get(user_id, {}).get("balance", 0)
     await update.message.reply_text(f"Your balance: {bal} USDT")
 
-# Show user stats
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reset_pairing_if_needed()
     user_id = str(update.effective_user.id)
@@ -190,7 +188,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
-# User withdrawal request
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     user = users.get(user_id)
@@ -212,12 +209,9 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     wallet_address = context.args[0]
-
-    # Deduct balance
     user["balance"] -= balance_amount
     save_data()
 
-    # Notify user
     await update.message.reply_text(
         f"✅ Withdrawal request received!\n"
         f"Amount: {balance_amount} USDT\n"
@@ -225,7 +219,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "You will receive your USDT soon (manual processing required)."
     )
 
-    # Notify admin automatically
     try:
         await context.bot.send_message(
             chat_id=ADMIN_ID,
@@ -239,7 +232,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Failed to notify admin: {e}")
 
-# Admin processes withdrawal and notifies user
 async def process_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ You are not authorized to use this command.")
@@ -270,7 +262,6 @@ async def process_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to notify user: {e}")
 
-# Help command
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     is_admin = user_id == ADMIN_ID
@@ -292,19 +283,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
-# Unknown commands
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Unknown command. Type /help to see available commands.")
 
 # -----------------------
 # Main
 # -----------------------
-async def main():
+if __name__ == "__main__":
     TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with your bot token
-
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Command handlers
+    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("confirm", confirm))
     app.add_handler(CommandHandler("balance", balance))
@@ -312,11 +301,7 @@ async def main():
     app.add_handler(CommandHandler("withdraw", withdraw))
     app.add_handler(CommandHandler("processwithdraw", process_withdraw))
     app.add_handler(CommandHandler("help", help_command))
-
-    # Unknown command handler
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    await app.run_polling()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    # Run polling directly
+    app.run_polling()
