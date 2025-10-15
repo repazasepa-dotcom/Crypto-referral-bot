@@ -17,6 +17,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)  # hide getUpdates logs
 
 # -----------------------
 # Storage files
@@ -301,23 +302,21 @@ async def process_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ You are not authorized to use this command.")
         return
 
-    if not context.args or len(context.args) != 1:
-        await update.message.reply_text("Usage: /processwithdraw <user_id>")
+    if not context.args or len(context.args) != 2:
+        await update.message.reply_text("Usage: /processwithdraw <user_id> <amount>")
         return
 
     target_user_id = context.args[0]
+    amount = context.args[1]
     user = users.get(target_user_id)
-    
-    if not user or "pending_withdraw" not in user:
-        await update.message.reply_text("❌ No pending withdrawal found for this user.")
+    if not user:
+        await update.message.reply_text("User not found.")
         return
 
-    pending = user.pop("pending_withdraw")
-    amount = pending["amount"]
-
-    # Deduct balance now
-    user["balance"] -= amount
-    save_data()
+    pending = user.get("pending_withdraw")
+    if not pending:
+        await update.message.reply_text("No pending withdrawal for this user.")
+        return
 
     try:
         await context.bot.send_message(
@@ -325,16 +324,18 @@ async def process_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=(
                 f"✅ Your withdrawal request has been processed!\n"
                 f"Amount: {amount} USDT\n"
-                f"Wallet: {pending['wallet']}\n"
-                "Funds will arrive shortly."
+                "Funds will arrive in your BEP20 wallet shortly."
             )
         )
+        user["balance"] -= int(amount)
+        user.pop("pending_withdraw", None)
+        save_data()
         await update.message.reply_text(f"✅ User {target_user_id} has been notified.")
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to notify user: {e}")
 
 # -----------------------
-# Help & unknown
+# Help command
 # -----------------------
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -358,6 +359,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
+# -----------------------
+# Unknown commands
+# -----------------------
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Unknown command. Type /help to see available commands.")
 
