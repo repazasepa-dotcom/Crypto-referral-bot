@@ -17,7 +17,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logging.getLogger("httpx").setLevel(logging.WARNING)  # hide getUpdates logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # -----------------------
 # Storage files
@@ -85,6 +85,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users[user_id] = {
             "referrer": None,
             "balance": 0,
+            "earned_from_referrals": 0,
             "left": 0,
             "right": 0,
             "referrals": [],
@@ -186,16 +187,24 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user["paid"] = True
+    save_data()
+
+    # Always credit referrer bonuses even if referrer hasn't paid
     ref_id = user.get("referrer")
     if ref_id:
         users[ref_id]["balance"] += DIRECT_BONUS
+        users[ref_id]["earned_from_referrals"] += DIRECT_BONUS
+
+        # Pairing bonus logic
         if users[ref_id]["left"] <= users[ref_id]["right"]:
             side = "left"
         else:
             side = "right"
+
         if users[ref_id][side] < MAX_PAIRS_PER_DAY:
             users[ref_id][side] += 1
             users[ref_id]["balance"] += PAIRING_BONUS
+            users[ref_id]["earned_from_referrals"] += PAIRING_BONUS
 
     save_data()
 
@@ -206,49 +215,54 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # -----------------------
-# User stats
+# User stats & balance
 # -----------------------
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reset_pairing_if_needed()
     user_id = str(update.effective_user.id)
-    bal = users.get(user_id, {}).get("balance", 0)
-    await update.message.reply_text(f"Your balance: {bal} USDT")
+    user = users.get(user_id)
+    if not user:
+        await update.message.reply_text("❌ You are not registered yet. Use /start first.")
+        return
+
+    bal = user.get("balance", 0)
+    earned = user.get("earned_from_referrals", 0)
+    await update.message.reply_text(f"💰 Your balance: {bal} USDT\n💎 Earned from referrals: {earned} USDT")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reset_pairing_if_needed()
     user_id = str(update.effective_user.id)
     user = users.get(user_id)
     if not user:
-        await update.message.reply_text("You are not registered yet. Use /start first.")
+        await update.message.reply_text("❌ You are not registered yet. Use /start first.")
         return
 
     num_referrals = len(user.get("referrals", []))
     left = user.get("left", 0)
     right = user.get("right", 0)
     balance_amount = user.get("balance", 0)
+    earned_from_referrals = user.get("earned_from_referrals", 0)
     paid = user.get("paid", False)
-    pending = user.get("pending_withdraw", None)
-    pending_text = f"\nPending withdrawal: {pending['amount']} USDT" if pending else ""
 
     msg = (
-        f"📊 Your Stats:\n"
-        f"Balance: {balance_amount} USDT{pending_text}\n"
+        f"📊 **Your Stats:**\n"
+        f"Balance: {balance_amount} USDT\n"
+        f"Earned from referrals: {earned_from_referrals} USDT\n"
         f"Direct referrals: {num_referrals}\n"
         f"Left pairs today: {left}\n"
         f"Right pairs today: {right}\n"
         f"Membership paid: {'✅' if paid else '❌'}"
     )
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 # -----------------------
-# Safe withdrawal
+# Withdraw & process
 # -----------------------
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     user = users.get(user_id)
-    
     if not user:
-        await update.message.reply_text("You are not registered yet. Use /start first.")
+        await update.message.reply_text("❌ You are not registered yet. Use /start first.")
         return
 
     balance_amount = user.get("balance", 0)
@@ -294,29 +308,25 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Failed to notify admin: {e}")
 
-# -----------------------
-# Admin processes withdrawal
-# -----------------------
 async def process_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ You are not authorized to use this command.")
         return
 
-    if not context.args or len(context.args) != 2:
-        await update.message.reply_text("Usage: /processwithdraw <user_id> <amount>")
+    if not context.args or len(context.args) != 1:
+        await update.message.reply_text("Usage: /processwithdraw <user_id>")
         return
 
     target_user_id = context.args[0]
-    amount = int(context.args[1])
     user = users.get(target_user_id)
-    if not user:
-        await update.message.reply_text("User not found.")
+    if not user or "pending_withdraw" not in user:
+        await update.message.reply_text("❌ No pending withdrawal for this user.")
         return
 
-    pending = user.get("pending_withdraw")
-    if not pending:
-        await update.message.reply_text("No pending withdrawal for this user.")
-        return
+    pending = user.pop("pending_withdraw")
+    amount = pending["amount"]
+    user["balance"] -= amount
+    save_data()
 
     try:
         await context.bot.send_message(
@@ -327,28 +337,25 @@ async def process_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Funds will arrive in your BEP20 wallet shortly."
             )
         )
-        user["balance"] -= amount
-        user.pop("pending_withdraw", None)
-        save_data()
         await update.message.reply_text(f"✅ User {target_user_id} has been notified.")
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to notify user: {e}")
 
 # -----------------------
-# Help command (safe)
+# Help & unknown
 # -----------------------
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     is_admin = user_id == ADMIN_ID
 
-    # Plain text to avoid Markdown errors
     help_text = (
         "📌 Available Commands:\n\n"
-        "/start - Register and see referral link & benefits\n"
-        "/balance - Check your current balance\n"
-        "/stats - View your referral stats\n"
-        "/withdraw <BEP20_wallet> - Request withdrawal (min 20 USDT)\n"
-        "/pay <TXID> - Submit your payment transaction ID"
+        "✨ /start - Register and see referral link & benefits\n"
+        "💵 /balance - Check your current balance\n"
+        "📊 /stats - View your referral stats\n"
+        "🏦 /withdraw <BEP20_wallet> - Request withdrawal (min 20 USDT)\n"
+        "💳 /pay <TXID> - Submit your payment transaction ID\n"
+        "❓ /help - Show this menu"
     )
 
     if is_admin:
@@ -360,9 +367,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(help_text)
 
-# -----------------------
-# Unknown commands
-# -----------------------
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Unknown command. Type /help to see available commands.")
 
